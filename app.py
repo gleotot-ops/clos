@@ -118,51 +118,53 @@ if uploaded_file:
         
         st.write("🗺️ Detected columns:", col_map)
         
-        # Check required columns
+        # Check required columns BEFORE renaming
         if 'name' not in col_map or 'price' not in col_map:
             st.error("❌ Could not find 'Name' or 'Price' columns")
-            st.info("Please ensure this is a standard Revel Product Inventory export")
+            st.info("💡 Please ensure this is a standard Revel Product Inventory export")
             st.stop()
         
-        # Rename columns to standard names
-        df = df.rename(columns=col_map)
+        # Rename columns to standard names (lowercase)
+        df_renamed = df.rename(columns=col_map)
         
-        # Ensure required columns exist
-        if 'name' not in df.columns or 'price' not in df.columns:
+        # NOW check if the renamed columns exist
+        if 'name' not in df_renamed.columns or 'price' not in df_renamed.columns:
             st.error("❌ Critical error: Name or Price column not found after mapping")
+            st.error(f"Available columns after rename: {list(df_renamed.columns)}")
             st.stop()
         
         # Clean price data
-        df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0).round(0).astype(int)
+        df_renamed['price'] = pd.to_numeric(df_renamed['price'], errors='coerce').fillna(0).round(0).astype(int)
         
         # Clean quantity data
-        if 'qty' in df.columns:
-            df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0).astype(int)
+        if 'qty' in df_renamed.columns:
+            df_renamed['qty'] = pd.to_numeric(df_renamed['qty'], errors='coerce').fillna(0).astype(int)
         else:
-            df['qty'] = 0
+            df_renamed['qty'] = 0
         
         # Clean SKU data
-        if 'sku' in df.columns:
-            df['sku'] = df['sku'].fillna('').astype(str)
+        if 'sku' in df_renamed.columns:
+            df_renamed['sku'] = df_renamed['sku'].fillna('').astype(str)
         else:
-            df['sku'] = ''
+            df_renamed['sku'] = ''
         
         # Filter wines only (exclude obvious non-wines)
         wine_keywords = ['wine', 'champagne', 'rose', 'brut', 'cru', 'domaine', 'chateau', 'clos', 'vin', 'sancerre', 'bordeaux', 'burgundy']
         exclude_keywords = ['spritz', 'coffee', 'tea', 'juice', 'water', 'soda', 'beer', 'cider', 'spirit', 'gin', 'vodka', 'whisky', 'rum', 'tequila', 'liqueur', 'vermouth', 'aperol']
         
-        keep_mask = df['name'].str.lower().str.contains('|'.join(wine_keywords), na=False) | \
-                    (~df['name'].str.lower().str.contains('|'.join(exclude_keywords), na=False))
-        df = df[keep_mask].copy()
+        keep_mask = df_renamed['name'].str.lower().str.contains('|'.join(wine_keywords), na=False) | \
+                    (~df_renamed['name'].str.lower().str.contains('|'.join(exclude_keywords), na=False))
+        df = df_renamed[keep_mask].copy()
         
         # Process
         df['section'] = df.apply(lambda r: get_section(r['name'], r['sku']), axis=1)
         df['vintage'] = df['name'].apply(extract_vintage)
         df['clean_name'] = df['name'].apply(clean_name)
         
-        # Sort: Section Order → Vintage (Newest) → Name (A-Z)
+        # Sort by section order, then vintage (newest first), then name
         df['section_rank'] = df['section'].map({s: i for i, s in enumerate(SECTION_ORDER)})
-        df = df.sort_values(['section_rank', 'vintage', 'clean_name'], ascending=[True, False, True])
+        df = df.sort_values(['section_rank', 'vintage', 'clean_name'], 
+                           ascending=[True, False, True])
         
         # Preview
         st.write("### 📋 Live Preview (First 15)")
