@@ -21,7 +21,7 @@ SECTION_ORDER = [
     "SPIRITS"
 ]
 
-# Smart categorization keywords tailored to Revel exports
+# Smart categorization keywords
 SECTION_KEYWORDS = {
     "CHAMPAGNES": ["champagne", "sp", "sparkling", "cremant", "brut nature", "blanc de blancs", "blanc de noirs"],
     "ROSÉ WINES": ["rosé", "rose ", "provence rose"],
@@ -74,28 +74,80 @@ uploaded_file = st.file_uploader("Upload Revel Inventory (Excel or CSV)", type=[
 if uploaded_file:
     try:
         # Load data
-        df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('.xlsx') else pd.read_csv(uploaded_file)
+        if uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file)
+        else:
+            df = pd.read_csv(uploaded_file)
+        
         st.success(f"✅ Loaded {len(df)} items from Revel")
         
-        # Auto-map Revel columns (handles capitalization/spaces)
-        col_map = {}
-        for col in df.columns:
-            c = col.lower().strip()
-            if 'name' in c: col_map['name'] = col
-            if 'price' in c and 'cost' not in c and 'retail ex' not in c: col_map['price'] = col
-            if 'quantity in hand' in c or 'qty' in c: col_map['qty'] = col
-            if 'sku' in c: col_map['sku'] = col
-            
-        if 'name' not in col_map or 'price' not in col_map:
-            st.error("❌ Missing 'Name' or 'Price' columns. Please ensure this is a standard Revel inventory export.")
-            st.stop()
-            
-        df = df.rename(columns=col_map)
-        df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0).round(0).astype(int)
-        df['qty'] = pd.to_numeric(df.get('qty', pd.Series([0]*len(df))), errors='coerce').fillna(0).astype(int)
-        df['sku'] = df.get('sku', pd.Series(['']*len(df))).fillna('').astype(str)
+        # Show first few rows for debugging
+        with st.expander("📋 View raw data structure"):
+            st.write("Columns:", list(df.columns))
+            st.dataframe(df.head(3))
         
-        # Filter out obvious non-wines (coffee, tea, spirits, etc.)
+        # Better column detection for Revel exports
+        col_map = {}
+        
+        # Convert all column names to lowercase for comparison
+        cols_lower = {col.lower().strip(): col for col in df.columns}
+        
+        # Detect Name column (usually contains wine names)
+        for col_key, col_name in cols_lower.items():
+            if 'name' in col_key and 'sku' not in col_key:
+                col_map['name'] = col_name
+                break
+        
+        # Detect Price column
+        for col_key, col_name in cols_lower.items():
+            if 'price' in col_key and 'cost' not in col_key and 'retail' not in col_key:
+                col_map['price'] = col_name
+                break
+        
+        # Detect Quantity in Hand column
+        for col_key, col_name in cols_lower.items():
+            if 'quantity in hand' in col_key or 'qty' in col_key:
+                col_map['qty'] = col_name
+                break
+        
+        # Detect SKU column
+        for col_key, col_name in cols_lower.items():
+            if 'sku' in col_key:
+                col_map['sku'] = col_name
+                break
+        
+        st.write("🗺️ Detected columns:", col_map)
+        
+        # Check required columns
+        if 'name' not in col_map or 'price' not in col_map:
+            st.error("❌ Could not find 'Name' or 'Price' columns")
+            st.info("Please ensure this is a standard Revel Product Inventory export")
+            st.stop()
+        
+        # Rename columns to standard names
+        df = df.rename(columns=col_map)
+        
+        # Ensure required columns exist
+        if 'name' not in df.columns or 'price' not in df.columns:
+            st.error("❌ Critical error: Name or Price column not found after mapping")
+            st.stop()
+        
+        # Clean price data
+        df['price'] = pd.to_numeric(df['price'], errors='coerce').fillna(0).round(0).astype(int)
+        
+        # Clean quantity data
+        if 'qty' in df.columns:
+            df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0).astype(int)
+        else:
+            df['qty'] = 0
+        
+        # Clean SKU data
+        if 'sku' in df.columns:
+            df['sku'] = df['sku'].fillna('').astype(str)
+        else:
+            df['sku'] = ''
+        
+        # Filter wines only (exclude obvious non-wines)
         wine_keywords = ['wine', 'champagne', 'rose', 'brut', 'cru', 'domaine', 'chateau', 'clos', 'vin', 'sancerre', 'bordeaux', 'burgundy']
         exclude_keywords = ['spritz', 'coffee', 'tea', 'juice', 'water', 'soda', 'beer', 'cider', 'spirit', 'gin', 'vodka', 'whisky', 'rum', 'tequila', 'liqueur', 'vermouth', 'aperol']
         
